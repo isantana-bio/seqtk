@@ -530,31 +530,57 @@ int stk_subseq(int argc, char *argv[])
 	khash_t(reg) *h = kh_init(reg);
 	gzFile fp;
 	kseq_t *seq;
-	int l, i, j, c, is_tab = 0, line = 0;
+	int l, i, j, c, is_tab = 0, line = 0, exclude = 0;//isantana
 	khint_t k;
-	while ((c = getopt(argc, argv, "tl:")) >= 0) {
+	while ((c = getopt(argc, argv, "tlx:")) >= 0) { //isantana
 		switch (c) {
 		case 't': is_tab = 1; break;
 		case 'l': line = atoi(optarg); break;
+        case 'x': exclude = 1; break; //isantana
 		}
 	}
-	if (optind + 2 > argc) {
+	if (optind + 1 > argc) {
 		fprintf(stderr, "\n");
 		fprintf(stderr, "Usage:   seqtk subseq [options] <in.fa> <in.bed>|<name.list>\n\n");
 		fprintf(stderr, "Options: -t       TAB delimited output\n");
+        fprintf(stderr, "         -x       Exclude entries in name.list\n");
 		fprintf(stderr, "         -l INT   sequence line length [%d]\n\n", line);
 		fprintf(stderr, "Note: Use 'samtools faidx' if only a few regions are intended.\n\n");
 		return 1;
 	}
-	h = stk_reg_read(argv[optind+1]);
+
+
+	h = stk_reg_read(argv[argc-1]); //isantana
 	// subseq
-	fp = strcmp(argv[optind], "-")? gzopen(argv[optind], "r") : gzdopen(fileno(stdin), "r");
+	fp = strcmp(argv[argc-2], "-")? gzopen(argv[argc-2], "r") : gzdopen(fileno(stdin), "r"); //isantana
 	seq = kseq_init(fp);
+
 	while ((l = kseq_read(seq)) >= 0) {
 		reglist_t *p;
-		k = kh_get(reg, h, seq->name.s);
-		if (k == kh_end(h)) continue;
+	
+    	k = kh_get(reg, h, seq->name.s);
+	
+    	if (k == kh_end(h)) {
+            if ( exclude == 0 ) {
+                continue; //isantana
+            }
+            else { //limited support for exclude:no tab delimited,no sequence line length option
+                printf("%c%s", seq->qual.l == seq->seq.l? '@' : '>', seq->name.s);
+                if (seq->comment.l) printf(" %s\n", seq->comment.s);
+                else printf("\n");
+                printf("%s\n",seq->seq.s);
+                if (seq->qual.l == seq->seq.l ) {
+                    printf("+\n%s\n",seq->qual.s);
+                }
+             }
+         }
+         else { //hit
+             if ( exclude ) continue;
+         }
+
 		p = &kh_val(h, k);
+
+
 		for (i = 0; i < p->n; ++i) {
 			int beg = p->a[i]>>32, end = p->a[i];
 			if (beg >= seq->seq.l) {
@@ -873,7 +899,7 @@ static void print_seq(FILE *fpout, const kseq_t *ks, int begin, int end)
 	}
 	fputc('\n', fpout);
 	if (ks->qual.l == 0) return;
-	fputs("+\n", fpout);
+	fputs("+", fpout); //isantana:removed \n because it was adding two for some reason
 	for (i = begin; i < end && i < ks->qual.l; ++i) {
 		if ((i - begin)%60 == 0) fputc('\n', fpout);
 		fputc(ks->qual.s[i], fpout);
@@ -1123,8 +1149,9 @@ int stk_seq(int argc, char *argv[])
 	double frac = 1.;
 	khash_t(reg) *h = 0;
 	krand_t *kr = 0;
+    int s_start = 0, s_end = 0; //isantana
 
-	while ((c = getopt(argc, argv, "N12q:l:Q:aACrn:s:f:M:L:cVUX:S")) >= 0) {
+	while ((c = getopt(argc, argv, "N12q:l:b:e:Q:aACrn:s:f:M:L:cVUX:S")) >= 0) {
 		switch (c) {
 			case 'a':
 			case 'A': flag |= 1; break;
@@ -1146,6 +1173,8 @@ int stk_seq(int argc, char *argv[])
 			case 'L': min_len = atoi(optarg); break;
 			case 's': kr = kr_srand(atol(optarg)); break;
 			case 'f': frac = atof(optarg); break;
+            case 'b': s_start = atoi(optarg);s_start--;break; //isantana
+            case 'e': s_end = atoi(optarg);break; //isantana
 		}
 	}
 	if (kr == 0) kr = kr_srand(11);
@@ -1171,6 +1200,8 @@ int stk_seq(int argc, char *argv[])
 		fprintf(stderr, "         -V        shift quality by '(-Q) - 33'\n");
 		fprintf(stderr, "         -U        convert all bases to uppercases\n");
 		fprintf(stderr, "         -S        strip of white spaces in sequences\n");
+        fprintf(stderr, "         -b        start coordinate [ 1 base ] inclusive \n");//isantana
+        fprintf(stderr, "         -e        end coordinate [ 1 base ] inclusive \n"); //isantana
 		fprintf(stderr, "\n");
 		free(kr);
 		return 1;
@@ -1240,7 +1271,13 @@ int stk_seq(int argc, char *argv[])
 				if (seq_nt16to4_table[seq_nt16_table[(int)seq->seq.s[i]]] > 3) break;
 			if (i < seq->seq.l) continue;
 		}
-		stk_printseq(seq, line_len);
+        //isantana
+        if ( s_start || s_end ) {
+            s_end = s_end ? s_end:seq->seq.l;
+            print_seq(stdout, seq, s_start, s_end);
+        } else { 
+            stk_printseq(seq, line_len);
+        }
 	}
 	kseq_destroy(seq);
 	gzclose(fp);

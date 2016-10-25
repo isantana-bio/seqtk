@@ -13,6 +13,7 @@ The only library dependency is zlib.
 Seqtk Examples
 --------------
 * (Added) Extract specific coordinates from seq file 
+
         seqtk seq -b 20 -e 25 in.f(a|q) >out.f(a|q)
 
 * Convert FASTQ to FASTA:
